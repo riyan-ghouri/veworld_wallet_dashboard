@@ -20,6 +20,7 @@ export async function generateMetadata({ params }) {
 }
 
 
+
 export default function Page({ params }) {
     const imageUrl = Buffer.from(params.token, "base64url").toString();
     return (
