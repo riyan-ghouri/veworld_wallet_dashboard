@@ -6,14 +6,16 @@ let lastPriceFetch = 0;
 const walletCache = new Map();
 const inFlight = new Map();
 
-// 🕒 Fast timeout-based fetch
-const fetchWithTimeout = (url, ms = 2500) =>
+// 🕒 Fetch with timeout (supports POST)
+const fetchWithTimeout = (url, ms = 2500, options = {}) =>
   Promise.race([
-    fetch(url, { cache: "no-store" }),
-    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), ms)),
+    fetch(url, { cache: "no-store", ...options }),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout")), ms)
+    ),
   ]);
 
-// 💰 Fetch cached CoinGecko prices
+// 💰 CoinGecko price cache
 async function getCachedPrice() {
   const now = Date.now();
   if (cachedPrice && now - lastPriceFetch < 60_000) return cachedPrice;
@@ -23,90 +25,107 @@ async function getCachedPrice() {
       "https://api.coingecko.com/api/v3/simple/price?ids=vebetterdao&vs_currencies=usd,pkr",
       2500
     );
+
     if (res.ok) {
       const data = await res.json();
       cachedPrice = {
-        usd: data?.vebetterdao?.usd || cachedPrice?.usd || 0,
-        pkr: data?.vebetterdao?.pkr || cachedPrice?.pkr || 0,
+        usd: data?.vebetterdao?.usd || 0,
+        pkr: data?.vebetterdao?.pkr || 0,
       };
       lastPriceFetch = now;
-      console.log("💰 Price cache refreshed");
     }
   } catch {
-    console.warn("⚠️ Price fetch fallback used");
+    console.warn("⚠️ Price fetch failed, using cache");
   }
 
   return cachedPrice || { usd: 0, pkr: 0 };
 }
 
-// 🔁 Multi-source wallet fetch
-async function fetchWalletData(address) {
-  const urls = [
-    `https://explore.vechain.org/api/accounts/${address}`,
-    `https://explore.vechain.org/api/accounts/${address}`,
-    `https://explore.vechain.org/api/accounts/${address}`,
-    `https://explore.vechain.org/api/accounts/${address}`,
-    `https://explore.vechain.org/api/accounts/${address}`,
-    `https://explore.vechain.org/api/accounts/${address}`,
-    `https://explore.vechain.org/api/accounts/${address}`,
-  ];
+// 🔗 VeChain contract call (balanceOf)
+const CONTRACT_ADDRESS = "0x5ef79995fe8a89e0812330e4378eb2660cede699";
+const VET_NODE = `https://mainnet.vechain.org/accounts/${CONTRACT_ADDRESS}`;
 
-  // 🚀 Race them all — first valid response wins
-  const results = await Promise.any(
-    urls.map(async (url) => {
-      const res = await fetchWithTimeout(url, 3000);
-      if (!res.ok) throw new Error("Bad response");
-      return res.json();
-    })
-  );
-
-  return results;
+function padAddress(address) {
+  return address.toLowerCase().replace("0x", "").padStart(64, "0");
 }
 
-// 🎯 Main route handler
+async function fetchWalletData(address) {
+  const body = {
+    value: "0",
+    data: `0x70a08231${padAddress(address)}`,
+  };
+
+  const res = await fetchWithTimeout(VET_NODE, 3000, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) throw new Error("VeChain node failed");
+
+  return res.json(); // { data: "0x..." }
+}
+
+// 🎯 Main API
 export async function POST(req) {
   try {
     const { address } = await req.json();
-    if (!address)
-      return NextResponse.json({ error: "Wallet address is required" }, { status: 400 });
+    if (!address) {
+      return NextResponse.json(
+        { error: "Wallet address is required" },
+        { status: 400 }
+      );
+    }
 
-    // 🧠 Serve from cache if fresh
-    const cached = walletCache.get(address);
     const now = Date.now();
+    const cached = walletCache.get(address);
+
+    // 🧠 Cache hit
     if (cached && now - cached.timestamp < 60_000) {
       if (!inFlight.has(address)) {
-        inFlight.set(address, fetchWalletData(address).finally(() => inFlight.delete(address)));
+        inFlight.set(
+          address,
+          fetchWalletData(address).finally(() =>
+            inFlight.delete(address)
+          )
+        );
       }
       return NextResponse.json({ ...cached.data, cached: true });
     }
 
-    // ⚡ Parallel: get wallet + price together
+    // ⚡ Fetch price + balance
     const [priceData, walletData] = await Promise.all([
       getCachedPrice(),
       fetchWalletData(address),
     ]);
 
-    let symbol = "UNKNOWN",
-      balance = 0,
-      totalValueUSD = 0,
-      totalValuePKR = 0;
-
-    if (Array.isArray(walletData?.tokens) && walletData.tokens.length > 0) {
-      const token =
-        walletData.tokens.find((t) => t.symbol?.toUpperCase() === "B3TR") ||
-        walletData.tokens[0];
-      symbol = token.symbol || "UNKNOWN";
-      const raw = Number(token.balance) / 10 ** (token.decimals || 18);
-      balance = raw.toFixed(2);
-      totalValueUSD = (raw * priceData.usd).toFixed(4);
-      totalValuePKR = (raw * priceData.pkr).toFixed(2);
+    // 🔢 Decode hex balance safely
+    let rawBalance = 0n;
+    if (walletData?.data) {
+      rawBalance = BigInt(walletData.data);
     }
+
+   const DECIMALS = 18;
+
+function formatUnits(value, decimals) {
+  const str = value.toString().padStart(decimals + 1, "0");
+  const integer = str.slice(0, -decimals);
+  const fraction = str.slice(-decimals).replace(/0+$/, "");
+  return fraction ? `${integer}.${fraction}` : integer;
+}
+
+const balanceStr = formatUnits(rawBalance, DECIMALS);
+const balance = Number(balanceStr);
+
+
+    const totalValueUSD = (balance * priceData.usd).toFixed(4);
+    const totalValuePKR = (balance * priceData.pkr).toFixed(2);
 
     const result = {
       success: true,
       address,
-      symbol,
-      balance,
+      symbol: "B3TR",
+      balance: balance.toFixed(2),
       priceUSD: priceData.usd,
       pricePKR: priceData.pkr,
       totalValueUSD,
@@ -115,13 +134,15 @@ export async function POST(req) {
       cached: false,
     };
 
-    // 🧊 Cache for next request
     walletCache.set(address, { data: result, timestamp: now });
     inFlight.delete(address);
 
     return NextResponse.json(result);
   } catch (err) {
     console.error("❌ Wallet fetch error:", err.message);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    );
   }
 }
