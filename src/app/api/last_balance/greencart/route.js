@@ -19,43 +19,45 @@ export async function GET() {
     if (!wallets.length) throw new Error("No wallets found in database");
 
     // 🔍 Check each wallet via your /api/token-today route
-    const checkPromises = wallets.map(async (wallet) => {
-      const address = wallet.address?.toLowerCase();
+   const checkPromises = wallets.map(async (wallet) => {
+  const address = wallet.address?.toLowerCase();
 
-      try {
-        const apiUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/last_balance?address=${address}`;
+  try {
+    const apiUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/last_balance?address=${address}`;
 
-        const res = await fetchWithTimeout(apiUrl);
+    const res = await fetchWithTimeout(apiUrl);
 
-        if (!res.ok) {
-          console.warn(`⚠️ API failed for ${address} (${res.status})`);
-          return { ...wallet.toObject(), received24h: 0, status: "❌" };
-        }
+    if (!res.ok) {
+      console.warn(`⚠️ API failed for ${address} (${res.status})`);
+      return { ...wallet.toObject(), received24h: 0, status: "❌" };
+    }
 
-        const data = await res.json();
+    const data = await res.json();
 
-        const received24h = Number(data?.received_24h?.total || 0);
+    // ✅ extract from new response format
+    const received24h = Number(data?.transactions_24h?.received?.total || 0);
 
-        return {
-          name: wallet.name,
-          address,
-          label: wallet.label,
-          sublabel: wallet.sublabel,
-          received24h,
-          status: received24h > 0 ? "✅" : "❌",
-        };
-      } catch (err) {
-        console.warn(`⚠️ Error for ${address}: ${err.message}`);
-        return {
-          name: wallet.name,
-          address,
-          label: wallet.label,
-          sublabel: wallet.sublabel,
-          received24h: 0,
-          status: "❌",
-        };
-      }
-    });
+    return {
+      name: wallet.name,
+      address,
+      label: wallet.label,
+      sublabel: wallet.sublabel,
+      received24h,
+      status: received24h > 0 ? "✅" : "❌",
+    };
+  } catch (err) {
+    console.warn(`⚠️ Error for ${address}: ${err.message}`);
+    return {
+      name: wallet.name,
+      address,
+      label: wallet.label,
+      sublabel: wallet.sublabel,
+      received24h: 0,
+      status: "❌",
+    };
+  }
+});
+
 
     const results = await Promise.allSettled(checkPromises);
     const allWallets = results
@@ -63,7 +65,6 @@ export async function GET() {
       .map((r) => r.value);
 
     const mineWallets = allWallets.filter((w) => w.label === "Mine");
-    const samiWallets = allWallets.filter((w) => w.label === "Sami");
 
     const getTotal = (list) => list.reduce((sum, w) => sum + (w.received24h || 0), 0);
 
@@ -128,19 +129,12 @@ export async function GET() {
       });
     }
 
-    if (samiWallets.length) {
-      await transporter.sendMail({
-        from: `"Wallet Monitor" <${process.env.EMAIL_USER}>`,
-        to: "astaar717@gmail.com",
-        subject: "💸 [Sami] 24h Wallet Report",
-        html: buildEmailBody(samiWallets, "Sami"),
-      });
-    }
+    
 
     return NextResponse.json({
       success: true,
       message: "✅ Report emails sent successfully.",
-      totals: { mine: getTotal(mineWallets), sami: getTotal(samiWallets) },
+      totals: { mine: getTotal(mineWallets) },
     });
 
   } catch (error) {

@@ -59,25 +59,26 @@ const BalanceHistory = ({ address }) => {
       </div>
     );
 
-  if (!data)
+  if (!data || !data.transactions_24h)
     return (
       <div className="p-2 text-gray-500 italic text-xs bg-gray-50 rounded-md border border-gray-200">
         No data
       </div>
     );
 
-  const { received_24h, sent_24h } = data;
+  const { received, sent, net } = data.transactions_24h;
 
   return (
-    <div className="grid grid-cols-2 gap-1.5 max-w-[130px]">
+    <div className="grid grid-cols-2 gap-1.5 max-w-[200px]">
       {/* Received Box */}
       <div className="bg-gradient-to-b from-emerald-50 to-white rounded-lg p-2 border border-emerald-100 shadow-sm hover:shadow-md transition-all duration-200">
         <h3 className="text-emerald-600 font-medium text-xs flex items-center gap-0.5">
           🡅 In
         </h3>
         <p className="text-base font-bold text-emerald-700 mt-0.5 leading-tight">
-          {received_24h.total}
+          {received.total}
         </p>
+        <p className="text-xs text-gray-500">{received.tx_count} tx</p>
       </div>
 
       {/* Sent Box */}
@@ -86,9 +87,13 @@ const BalanceHistory = ({ address }) => {
           🡇 Out
         </h3>
         <p className="text-base font-bold text-rose-700 mt-0.5 leading-tight">
-          {sent_24h.total}
+          {sent.total}
         </p>
+        <p className="text-xs text-gray-500">{sent.tx_count} tx</p>
       </div>
+
+      {/* Net Box */}
+     
     </div>
   );
 };
