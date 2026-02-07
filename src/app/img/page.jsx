@@ -20,6 +20,9 @@ export default function Home() {
 
 
     return (
+
+        // main div with padding
+            
         <div style={{ padding: 40 }}>
             <h1>Upload Image & Share Link</h1>
 
