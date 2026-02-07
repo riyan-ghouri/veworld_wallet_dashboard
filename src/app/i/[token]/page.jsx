@@ -13,7 +13,7 @@ export async function generateMetadata({ params }) {
             type: "website",
         },
         twitter: {
-            card: "summary_large_image",
+            card: 'summary_large_image',
             images: [imageUrl],
         },
     };
