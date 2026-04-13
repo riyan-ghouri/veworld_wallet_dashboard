@@ -90,18 +90,17 @@ export async function PATCH(req) {
       );
     }
 
-    const updateData = {
-      claim,
-    };
+    const isClaimed = claim === true || claim === "true";
 
-    // if claiming → update time
-    if (claim === true) {
-      updateData.lastClaimAt = new Date();
-    }
+    // 🕒 ALWAYS control time properly
+    const updateData = {
+      claim: isClaimed,
+      lastClaimAt: isClaimed ? new Date() : null, // 👈 FIXED TIME HANDLING
+    };
 
     const updatedUser = await BOT.findByIdAndUpdate(
       id,
-      updateData,
+      { $set: updateData },
       { new: true }
     );
 
@@ -112,14 +111,11 @@ export async function PATCH(req) {
       );
     }
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Status updated successfully",
-        data: updatedUser,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      success: true,
+      message: "Status + time updated successfully",
+      data: updatedUser,
+    });
 
   } catch (error) {
     console.error(error);
