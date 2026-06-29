@@ -1,12 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
 
 const BINANCE_BASE = "https://www.binance.com";
-const SHARED_SECRET = process.env.PROXY_SECRET!;
+const SHARED_SECRET = process.env.PROXY_SECRET;
 
-export async function POST(request: NextRequest) {
+export async function POST(request) {
   const auth = request.headers.get("x-proxy-secret");
+
   if (auth !== SHARED_SECRET) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
   }
 
   const { path, body, key } = await request.json();
@@ -16,14 +20,17 @@ export async function POST(request: NextRequest) {
     headers: {
       "X-Square-OpenAPI-Key": key,
       "Content-Type": "application/json",
-      "clienttype": "binanceSkill",
+      clienttype: "binanceSkill",
     },
     body: JSON.stringify(body),
   });
 
   const text = await upstream.text();
+
   return new NextResponse(text, {
     status: upstream.status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+    },
   });
 }
